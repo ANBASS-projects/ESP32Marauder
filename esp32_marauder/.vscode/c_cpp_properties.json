@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/abass/Arduino/libraries",
+                "/home/abass/Arduino/libraries/TFT_eSPI",
+                "/home/abass/Arduino/libraries/JPEGDecoder/src"
+            ],
+            "defines": [],
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/g++",
+            "compilerArgs": [
+                "-w",
+                "-zmuldefs"
+            ]
+        }
+    ],
+    "version": 4
+}

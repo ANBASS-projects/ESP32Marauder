@@ -22,6 +22,7 @@ https://www.online-utility.org/image/convert/to/XBM
 #include "freertos/task.h"
 #include "esp_system.h"
 #include <Arduino.h>
+#include <SPI.h>
 
 #ifdef HAS_GPS
   #include "GpsInterface.h"
@@ -206,6 +207,7 @@ void setup()
     display_obj.tft.drawCentreString("ESP32 Marauder", TFT_WIDTH/2, TFT_HEIGHT * 0.33, 1);
     display_obj.tft.drawCentreString("JustCallMeKoko", TFT_WIDTH/2, TFT_HEIGHT * 0.5, 1);
     display_obj.tft.drawCentreString(display_obj.version_number, TFT_WIDTH/2, TFT_HEIGHT * 0.66, 1);
+    display_obj.tft.drawCentreString("JWAC Custom", TFT_WIDTH/2, TFT_HEIGHT * 0.70, 1);
   #endif
 
 

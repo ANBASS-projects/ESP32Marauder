@@ -1,5 +1,5 @@
 #include "GpsInterface.h"
-
+#include <string>
 #ifdef HAS_GPS
 
 extern GpsInterface gps_obj;

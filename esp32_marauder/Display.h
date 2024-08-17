@@ -16,7 +16,7 @@
 #include <Ticker.h>
 #include "SPIFFS.h"
 #include "Assets.h"
-
+#include <XPT2046_Touchscreen.h>
 #include <TFT_eSPI.h>
 
 // WiFi stuff
@@ -38,6 +38,14 @@
 #define LV_JOIN_WIFI 13
 #define LV_ADD_SSID 14
 #define WIFI_ATTACK_BEACON_LIST 15
+
+
+//Touchscreen stuff
+#define XPT2046_IRQ 36
+#define XPT2046_MOSI 32
+#define XPT2046_MISO 39
+#define XPT2046_CLK 25
+#define XPT2046_CS 33
 
 class Display
 {
@@ -64,6 +72,12 @@ class Display
     TFT_eSPI tft = TFT_eSPI();
     TFT_eSPI_Button key[BUTTON_ARRAY_LEN];
     const String PROGMEM version_number = MARAUDER_VERSION;
+    
+    /*SPIClass test = SPIClass(VSPI);
+    XPT2046_Touchscreen touchscreen = XPT2046_Touchscreen(XPT2046_CS, XPT2046_IRQ);
+
+    test.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+    touchscreen.begin(touchscreenSPI);*/
 
     bool printing = false;
     bool loading = false;

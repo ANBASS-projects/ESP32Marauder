@@ -32,6 +32,10 @@ void Display::RunSetup()
     tft.setRotation(1);
   #endif
 
+  #ifdef MARAUDER_V4
+    tft.setRotation(0);
+  #endif
+
   tft.setCursor(0, 0);
 
   #ifdef HAS_ILI9341

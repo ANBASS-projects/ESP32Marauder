@@ -9,7 +9,7 @@
   //// BOARD TARGETS
   //#define MARAUDER_M5STICKC
   //#define MARAUDER_MINI
-  //#define MARAUDER_V4
+  #define MARAUDER_V4
   //#define MARAUDER_V6
   //#define MARAUDER_V6_1
   //#define MARAUDER_KIT
@@ -106,7 +106,7 @@
     #define HAS_SD
     #define USE_SD
     #define HAS_TEMP_SENSOR
-    #define HAS_GPS
+    //#define HAS_GPS
   #endif
 
   #if defined(MARAUDER_V6) || defined(MARAUDER_V6_1)
@@ -929,7 +929,7 @@
     #elif defined(MARAUDER_REV_FEATHER)
       #define PIN 33
     #else
-      #define PIN 25
+      #define PIN 27
     #endif
   
   #endif
