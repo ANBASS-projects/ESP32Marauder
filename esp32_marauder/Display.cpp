@@ -33,6 +33,18 @@ void Display::RunSetup()
   #endif
 
   #ifdef MARAUDER_V4
+
+    //Touchscreen stuff
+    #define XPT2046_IRQ 36
+    #define XPT2046_MOSI 32
+    #define XPT2046_MISO 39
+    #define XPT2046_CLK 25
+    #define XPT2046_CS 33
+    
+    touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+    touchscreen.begin(touchscreenSPI);
+
+    Serial.println(F("Configured touchscreen"));
     tft.setRotation(0);
   #endif
 
