@@ -12,8 +12,6 @@ https://www.online-utility.org/image/convert/to/XBM
   #define Display_h
 #endif
 
-
-
 #include <WiFi.h>
 #include "EvilPortal.h"
 #include <Wire.h>
@@ -24,7 +22,6 @@ https://www.online-utility.org/image/convert/to/XBM
 #include "freertos/task.h"
 #include "esp_system.h"
 #include <Arduino.h>
-#include <SPI.h>
 
 #ifdef HAS_GPS
   #include "GpsInterface.h"
@@ -37,11 +34,11 @@ https://www.online-utility.org/image/convert/to/XBM
 #endif
 #include "Buffer.h"
 
-#ifdef MARAUDER_FLIPPER
+#ifdef HAS_FLIPPER_LED
   #include "flipperLED.h"
 #elif defined(XIAO_ESP32_S3)
   #include "xiaoLED.h"
-#elif defined(MARAUDER_M5STICKC)
+#elif defined(MARAUDER_M5STICKC) || defined(MARAUDER_M5STICKCP2)
   #include "stickcLED.h"
 #elif defined(HAS_NEOPIXEL_LED)
   #include "LedInterface.h"
@@ -100,7 +97,7 @@ CommandLine cli_obj;
   MenuFunctions menu_function_obj;
 #endif
 
-#ifdef HAS_SD
+#if defined(HAS_SD) && !defined(HAS_C5_SD)
   SDInterface sd_obj;
 #endif
 
@@ -108,11 +105,11 @@ CommandLine cli_obj;
   AXP192 axp192_obj;
 #endif
 
-#ifdef MARAUDER_FLIPPER
+#ifdef HAS_FLIPPER_LED
   flipperLED flipper_led;
 #elif defined(XIAO_ESP32_S3)
   xiaoLED xiao_led;
-#elif defined(MARAUDER_M5STICKC)
+#elif defined(MARAUDER_M5STICKC) || defined(MARAUDER_M5STICKCP2)
   stickcLED stickc_led;
 #else
   LedInterface led_obj;
@@ -125,7 +122,6 @@ const String PROGMEM version_number = MARAUDER_VERSION;
 #endif
 
 uint32_t currentTime  = 0;
-
 
 void backlightOn() {
   #ifdef HAS_SCREEN
@@ -151,11 +147,30 @@ void backlightOff() {
   #endif
 }
 
+#ifdef HAS_C5_SD
+  SPIClass sharedSPI(SPI);
+  SDInterface sd_obj = SDInterface(&sharedSPI, SD_CS);
+#endif
 
 void setup()
 {
-  #ifdef MARAUDER_M5STICKC
+  #ifndef HAS_DUAL_BAND
+    esp_spiram_init();
+  #endif
+
+  #ifdef HAS_C5_SD
+    Serial.println("Starting shared SPI for C5 SD configuration...");
+    sharedSPI.begin(SD_SCK, SD_MISO, SD_MOSI);
+    delay(100);
+  #endif
+
+  #ifdef defined(MARAUDER_M5STICKC) && !defined(MARAUDER_M5STICKCP2)
     axp192_obj.begin();
+  #endif
+
+  #if defined(MARAUDER_M5STICKCP2) // Prevent StickCP2 from turning off when disconnect USB cable
+    pinMode(POWER_HOLD_PIN, OUTPUT);
+    digitalWrite(POWER_HOLD_PIN, HIGH);
   #endif
   
   #ifdef HAS_SCREEN
@@ -163,17 +178,17 @@ void setup()
   #endif
   
   backlightOff();
-#if BATTERY_ANALOG_ON == 1
-  pinMode(BATTERY_PIN, OUTPUT);
-  pinMode(CHARGING_PIN, INPUT);
-#endif
+  #if BATTERY_ANALOG_ON == 1
+    pinMode(BATTERY_PIN, OUTPUT);
+    pinMode(CHARGING_PIN, INPUT);
+  #endif
   
   // Preset SPI CS pins to avoid bus conflicts
   #ifdef HAS_SCREEN
     digitalWrite(TFT_CS, HIGH);
   #endif
   
-  #ifdef HAS_SD
+  #if defined(HAS_SD) && !defined(HAS_C5_SD)
     pinMode(SD_CS, OUTPUT);
 
     delay(10);
@@ -185,7 +200,18 @@ void setup()
 
   Serial.begin(115200);
 
+  while(!Serial)
+    delay(10);
+
   Serial.println("ESP-IDF version is: " + String(esp_get_idf_version()));
+
+  #ifdef HAS_PSRAM
+    if (psramInit()) {
+      Serial.println("PSRAM is correctly initialized");
+    } else {
+      Serial.println("PSRAM not available");
+    }
+  #endif
 
   #ifdef HAS_SCREEN
     display_obj.RunSetup();
@@ -194,30 +220,24 @@ void setup()
 
   backlightOff();
 
-  // Draw the title screen
-  /*
   #ifdef HAS_SCREEN
-    #ifndef MARAUDER_MINI
-      display_obj.drawJpeg("/marauder3L.jpg", 0 , 0);     // 240 x 320 image
+    #ifndef MARAUDER_CARDPUTER
+      display_obj.tft.drawCentreString("ESP32 Marauder", TFT_WIDTH/2, TFT_HEIGHT * 0.33, 1);
+      display_obj.tft.drawCentreString("JustCallMeKoko", TFT_WIDTH/2, TFT_HEIGHT * 0.5, 1);
+      display_obj.tft.drawCentreString(display_obj.version_number, TFT_WIDTH/2, TFT_HEIGHT * 0.66, 1);
+      display_obj.tft.drawCentreString("BASSACKWARDS", TFT_WIDTH/2, TFT_HEIGHT * 0.75, 1);
     #else
-      display_obj.drawJpeg("/marauder3L.jpg", 0, 0);
+      display_obj.tft.drawCentreString("ESP32 Marauder", TFT_HEIGHT/2, TFT_WIDTH * 0.33, 1);
+      display_obj.tft.drawCentreString("JustCallMeKoko", TFT_HEIGHT/2, TFT_WIDTH * 0.5, 1);
+      display_obj.tft.drawCentreString(display_obj.version_number, TFT_HEIGHT/2, TFT_WIDTH * 0.66, 1);
+      display_obj.tft.drawCentreString("BASSACKWARDS", TFT_WIDTH/2, TFT_HEIGHT* 0.75, 1);
     #endif
-  #endif
-  */
-
-  #ifdef HAS_SCREEN
-    display_obj.tft.drawCentreString("ESP32 Marauder", TFT_WIDTH/2, TFT_HEIGHT * 0.33, 1);
-    display_obj.tft.drawCentreString("JustCallMeKoko", TFT_WIDTH/2, TFT_HEIGHT * 0.5, 1);
-    display_obj.tft.drawCentreString(display_obj.version_number, TFT_WIDTH/2, TFT_HEIGHT * 0.66, 1);
-    display_obj.tft.drawCentreString("JWAC Custom", TFT_WIDTH/2, TFT_HEIGHT * 0.70, 1);
   #endif
 
 
   backlightOn(); // Need this
 
   #ifdef HAS_SCREEN
-    delay(2000);
-
     // Do some stealth mode stuff
     #ifdef HAS_BUTTONS
       if (c_btn.justPressed()) {
@@ -228,43 +248,23 @@ void setup()
         Serial.println("Headless Mode enabled");
       }
     #endif
-
-    display_obj.clearScreen();
-  
-    display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  
-    display_obj.tft.println(text_table0[0]);
-  
-    delay(2000);
-  
-    display_obj.tft.println("Marauder " + display_obj.version_number + "\n");
-  
-    display_obj.tft.println(text_table0[1]);
   #endif
 
   settings_obj.begin();
 
-  wifi_scan_obj.RunSetup();
-
-  #ifdef HAS_SCREEN
-    display_obj.tft.println(F(text_table0[2]));
-  #endif
-
   buffer_obj = Buffer();
   #if defined(HAS_SD)
     // Do some SD stuff
-    if(sd_obj.initSD()) {
-      #ifdef HAS_SCREEN
-        display_obj.tft.println(F(text_table0[3]));
-      #endif
-    } else {
+    if(!sd_obj.initSD())
       Serial.println(F("SD Card NOT Supported"));
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-        display_obj.tft.println(F(text_table0[4]));
-        display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-      #endif
-    }
+
+  #endif
+
+  wifi_scan_obj.RunSetup();
+
+  #ifdef HAS_SCREEN
+    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    display_obj.tft.drawCentreString("Initializing...", TFT_WIDTH/2, TFT_HEIGHT * 0.82, 1);
   #endif
 
   evil_portal_obj.setup();
@@ -272,21 +272,13 @@ void setup()
   #ifdef HAS_BATTERY
     battery_obj.RunSetup();
   #endif
-  
-  #ifdef HAS_SCREEN
-    display_obj.tft.println(F(text_table0[5]));
-  #endif
-
-  #ifdef HAS_SCREEN
-    display_obj.tft.println(F(text_table0[6]));
-  #endif
 
   #ifdef HAS_BATTERY
     battery_obj.battery_level = battery_obj.getBatteryLevel();
   #endif
 
   // Do some LED stuff
-  #ifdef MARAUDER_FLIPPER
+  #ifdef HAS_FLIPPER_LED
     flipper_led.RunSetup();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.RunSetup();
@@ -296,33 +288,29 @@ void setup()
     led_obj.RunSetup();
   #endif
 
-  #ifdef HAS_SCREEN
-    display_obj.tft.println(F(text_table0[7]));
-
-    delay(500);
-  #endif
-
   #ifdef HAS_GPS
     gps_obj.begin();
-    #ifdef HAS_SCREEN
-      if (gps_obj.getGpsModuleStatus())
-        display_obj.tft.println("GPS Module connected");
-      else
-        display_obj.tft.println("GPS Module NOT connected");
-    #endif
   #endif
 
-  #ifdef HAS_SCREEN
-    display_obj.tft.println(F(text_table0[8]));
-  
+  #ifdef HAS_SCREEN  
     display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  
-    delay(2000);
   #endif
 
   #ifdef HAS_SCREEN
     menu_function_obj.RunSetup();
   #endif
+
+  /*char ssidBuf[64] = {0};  // or prefill with existing SSID
+  if (keyboardInput(ssidBuf, sizeof(ssidBuf), "Enter SSID")) {
+    // user pressed OK
+    Serial.println(ssidBuf);
+  } else {
+    Serial.println(F("User exited keyboard"));
+  }
+
+  menu_function_obj.changeMenu(menu_function_obj.current_menu);*/
+
+  wifi_scan_obj.StartScan(WIFI_SCAN_OFF);
   
   Serial.println(F("CLI Ready"));
   cli_obj.RunSetup();
@@ -335,10 +323,12 @@ void loop()
   bool mini = false;
 
   #ifdef SCREEN_BUFFER
-    mini = true;
+    #ifndef HAS_ILI9341
+      mini = true;
+    #endif
   #endif
 
-  #ifdef HAS_ILI9341
+  #if (defined(HAS_ILI9341) && !defined(MARAUDER_CYD_2USB))
     #ifdef HAS_BUTTONS
       if (c_btn.isHeld()) {
         if (menu_function_obj.disable_touch)
@@ -355,20 +345,11 @@ void loop()
   #endif
 
   // Update all of our objects
-  /*#ifdef HAS_SCREEN
-    bool do_draw = display_obj.draw_tft;
-  #else
-    bool do_draw = false;
-  #endif*/
-  
-  //if ((!do_draw) && (wifi_scan_obj.currentScanMode != ESP_UPDATE))
-  //{
   cli_obj.main(currentTime);
   #ifdef HAS_SCREEN
     display_obj.main(wifi_scan_obj.currentScanMode);
   #endif
   wifi_scan_obj.main(currentTime);
-  //evil_portal_obj.main(wifi_scan_obj.currentScanMode);
 
   #ifdef HAS_GPS
     gps_obj.main();
@@ -384,7 +365,6 @@ void loop()
 
   #ifdef HAS_BATTERY
     battery_obj.main(currentTime);
-    //temp_obj.main(currentTime);
   #endif
   settings_obj.main(currentTime);
   if (((wifi_scan_obj.currentScanMode != WIFI_PACKET_MONITOR) && (wifi_scan_obj.currentScanMode != WIFI_SCAN_EAPOL)) ||
@@ -392,9 +372,8 @@ void loop()
     #ifdef HAS_SCREEN
       menu_function_obj.main(currentTime);
     #endif
-    //cli_obj.main(currentTime);
   }
-  #ifdef MARAUDER_FLIPPER
+  #ifdef HAS_FLIPPER_LED
     flipper_led.main();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.main();
@@ -404,29 +383,9 @@ void loop()
     led_obj.main(currentTime);
   #endif
 
-  //if (wifi_scan_obj.currentScanMode == OTA_UPDATE)
-  //  web_obj.main();
   #ifdef HAS_SCREEN
     delay(1);
   #else
     delay(50);
   #endif
-  //}
-  /*else if (wifi_scan_obj.currentScanMode == ESP_UPDATE) {
-    #ifdef HAS_SCREEN
-      display_obj.main(wifi_scan_obj.currentScanMode);
-      menu_function_obj.main(currentTime);
-    #endif
-
-    #ifdef MARAUDER_FLIPPER
-      flipper_led.main();
-    #elif defined(XIAO_ESP32_S3)
-      xiao_led.main();
-    #else
-      led_obj.main(currentTime);
-    #endif
-    
-    //cli_obj.main(currentTime);
-    delay(1);
-  }*/
 }

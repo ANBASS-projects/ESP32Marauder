@@ -4,7 +4,149 @@
 #ifdef HAS_SCREEN
 
 Display::Display()
+#ifdef HAS_CYD_TOUCH
+  : touchscreen(XPT2046_CS, XPT2046_IRQ)
+#endif
 {
+}
+
+int8_t Display::menuButton(uint16_t *x, uint16_t *y, bool pressed, bool check_hold) {
+  #ifdef HAS_ILI9341
+    for (uint8_t b = BUTTON_ARRAY_LEN; b < BUTTON_ARRAY_LEN + 3; b++) {
+      if (pressed && this->key[b].contains(*x, *y)) {
+        this->key[b].press(true);  // tell the button it is pressed
+      } else {
+        this->key[b].press(false);  // tell the button it is NOT pressed
+      }
+    }
+
+    for (uint8_t b = BUTTON_ARRAY_LEN; b < BUTTON_ARRAY_LEN + 3; b++) {
+      if (!check_hold) {
+        if ((this->key[b].justReleased()) && (!pressed)) {
+          return b - BUTTON_ARRAY_LEN;
+        }
+      }
+      else {
+        if ((this->key[b].isPressed())) {
+          return b - BUTTON_ARRAY_LEN;
+        }
+      }
+    }
+
+  #endif
+
+  return -1;
+}
+
+uint8_t Display::updateTouch(uint16_t *x, uint16_t *y, uint16_t threshold) {
+  #ifdef HAS_ILI9341
+    if (!this->headless_mode)
+      #ifndef HAS_CYD_TOUCH
+        return this->tft.getTouch(x, y, threshold);
+      #else
+        if (this->touchscreen.tirqTouched() && this->touchscreen.touched()) {
+          TS_Point p = this->touchscreen.getPoint();
+
+          //*x = map(p.x, 200, 3700, 1, TFT_WIDTH);
+          //*y = map(p.y, 240, 3800, 1, TFT_HEIGHT);
+
+          uint8_t rot = this->tft.getRotation();
+
+          //#ifdef HAS_CYD_PORTRAIT
+          //  rot = 0;
+          //#endif
+
+          switch (rot) {
+            case 0: // Standard Protrait
+              *x = map(p.x, 200, 3700, 1, TFT_WIDTH);
+              *y = map(p.y, 240, 3800, 1, TFT_HEIGHT);
+              break;
+            case 1:
+              *x = map(p.y, 143, 3715, 0, TFT_HEIGHT);     // Horizontal (Y axis in touch, X on screen)
+              *y = map(p.x, 3786, 216, 0, TFT_WIDTH);    // Vertical (X axis in touch, Y on screen)
+              break;
+            case 2:
+              *x = map(p.x, 3700, 200, 1, TFT_WIDTH);
+              *y = map(p.y, 3800, 240, 1, TFT_HEIGHT);
+              break;
+            case 3:
+              *x = map(p.y, 3800, 240, 1, TFT_WIDTH);
+              *y = map(p.x, 200, 3700, 1, TFT_HEIGHT);
+              break;
+          }
+          return 1;
+        }
+        else
+          return 0;
+      #endif
+    else
+      return !this->headless_mode;
+  #endif
+
+  return 0;
+}
+
+bool Display::isTouchHeld(uint16_t threshold) {
+  static unsigned long touchStartTime = 0;
+  static bool touchHeld = false;
+  uint16_t x, y;
+
+  if (this->updateTouch(&x, &y, threshold)) {
+    // Touch detected
+    if (touchStartTime == 0) {
+      touchStartTime = millis();  // First touch timestamp
+    } else if (!touchHeld && millis() - touchStartTime >= 1000) {
+      touchHeld = true;  // Held for at least 1000ms
+      return true;
+    }
+  } else {
+    // Touch released
+    touchStartTime = 0;
+    touchHeld = false;
+  }
+
+  return false;
+}
+
+void Display::init() {
+  tft.init();
+
+  #ifdef HAS_DUAL_BAND
+    digitalWrite(TFT_BL, HIGH);
+  #endif
+}
+
+void Display::setCalData(bool landscape) {
+  #ifndef HAS_CYD_TOUCH
+    if (!landscape) {
+      #ifdef TFT_SHIELD
+        uint16_t calData[5] = { 275, 3494, 361, 3528, 4 }; // tft.setRotation(0); // Portrait with TFT Shield
+      #elif defined(MARAUDER_CYD_3_5_INCH)
+        uint16_t calData[5] = { 239, 3560, 262, 3643, 4 };
+      #elif defined(MARAUDER_V8)
+        uint16_t calData[5] = { 351, 3279, 214, 3394, 2 };
+      #elif defined(TFT_DIY)
+        uint16_t calData[5] = { 339, 3470, 237, 3438, 2 }; // tft.setRotation(0); // Portrait with DIY TFT
+      #endif
+      #ifdef HAS_ILI9341
+        tft.setTouch(calData);
+      #endif
+    }
+    else {
+      #ifdef TFT_SHIELD
+        uint16_t calData[5] = { 391, 3491, 266, 3505, 7 }; // Landscape TFT Shield
+      #elif defined(MARAUDER_CYD_3_5_INCH)
+        uint16_t calData[5] = { 272, 3648, 234, 3565, 7 };
+      #elif defined(MARAUDER_V8)
+        uint16_t calData[5] = { 213, 3396, 350, 3275, 1 };
+      #else if defined(TFT_DIY)
+        uint16_t calData[5] = { 213, 3469, 320, 3446, 1 }; // Landscape TFT DIY
+      #endif
+      #ifdef HAS_ILI9341
+        tft.setTouch(calData);
+      #endif
+    }
+  #endif
 }
 
 // Function to prepare the display and the menus
@@ -18,57 +160,28 @@ void Display::RunSetup()
   #ifdef SCREEN_BUFFER
     screen_buffer = new LinkedList<String>();
   #endif
+
+  #ifdef HAS_CYD_TOUCH
+    this->touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+    this->touchscreen.begin(touchscreenSPI);
+    this->touchscreen.setRotation(0);
+  #endif
   
   tft.init();
-  #ifndef MARAUDER_M5STICKC
-    tft.setRotation(0); // Portrait
-  #endif
 
-  #ifdef MARAUDER_M5STICKC
-    tft.setRotation(1);
-  #endif
-
-  #ifdef MARAUDER_REV_FEATHER
-    tft.setRotation(1);
-  #endif
-
-  #ifdef MARAUDER_V4
-
-    //Touchscreen stuff
-    #define XPT2046_IRQ 36
-    #define XPT2046_MOSI 32
-    #define XPT2046_MISO 39
-    #define XPT2046_CLK 25
-    #define XPT2046_CS 33
-    
-    touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-    touchscreen.begin(touchscreenSPI);
-
-    Serial.println(F("Configured touchscreen"));
-    tft.setRotation(0);
-  #endif
+  tft.setRotation(SCREEN_ORIENTATION);
 
   tft.setCursor(0, 0);
 
   #ifdef HAS_ILI9341
 
-    #ifdef TFT_SHIELD
-      uint16_t calData[5] = { 275, 3494, 361, 3528, 4 }; // tft.setRotation(0); // Portrait with TFT Shield
-      //Serial.println(F("Using TFT Shield"));
-    #else if defined(TFT_DIY)
-      uint16_t calData[5] = { 339, 3470, 237, 3438, 2 }; // tft.setRotation(0); // Portrait with DIY TFT
-      //Serial.println(F("Using TFT DIY"));
+    #ifndef HAS_CYD_TOUCH
+      this->setCalData();
     #endif
-    tft.setTouch(calData);
 
   #endif
 
-  //tft.fillScreen(TFT_BLACK);
   clearScreen();
-
-  //Serial.println("SPI_FREQUENCY: " + (String)SPI_FREQUENCY);
-  //Serial.println("SPI_READ_FREQUENCY:" + (String)SPI_READ_FREQUENCY);
-  //Serial.println("SPI_TOUCH_FREQUENCY: " + (String)SPI_TOUCH_FREQUENCY);
 
   #ifdef KIT
     pinMode(KIT_LED_BUILTIN, OUTPUT);
@@ -123,11 +236,16 @@ void Display::tftDrawGraphObjects(byte x_scale)
   tft.setCursor(3, 228); tft.print("0"); // "-" at bottom of y axis
 }
 
-void Display::tftDrawEapolColorKey()
+void Display::tftDrawEapolColorKey(bool filter)
 {
   //Display color key
   tft.setTextSize(1); tft.setTextColor(TFT_WHITE);
-  tft.fillRect(14, 0, 15, 8, TFT_CYAN); tft.setCursor(30, 0); tft.print(" - EAPOL"); 
+  tft.fillRect(14, 0, 15, 8, TFT_CYAN); tft.setCursor(30, 0); tft.println(" - EAPOL"); 
+  if (filter) {
+    uint16_t y = tft.getCursorY();
+    tft.setCursor(14, y);
+    tft.println("Filter Active");
+  }
 }
 
 void Display::tftDrawColorKey()
@@ -205,31 +323,56 @@ void Display::tftDrawYScaleButtons(byte y_scale)
   key[3].drawButton();
 }
 
-void Display::tftDrawChannelScaleButtons(int set_channel)
+void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an)
 {
-  tft.drawFastVLine(178, 0, 20, TFT_WHITE);
-  tft.setCursor(145, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print(text10); tft.print(set_channel);
+  if (lnd_an) {
+    tft.drawFastVLine(178, 0, 20, TFT_WHITE);
+    tft.setCursor(145, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print(text10); tft.print(set_channel);
 
-  key[4].initButton(&tft, // channel - box
-                        164,
-                        10, // x, y, w, h, outline, fill, text
-                        20,
-                        20,
-                        TFT_BLACK, // Outline
-                        TFT_BLUE, // Fill
-                        TFT_BLACK, // Text
-                        "-",
-                        2);
-  key[5].initButton(&tft, // channel + box
-                        193,
-                        10, // x, y, w, h, outline, fill, text
-                        20,
-                        20,
-                        TFT_BLACK, // Outline
-                        TFT_BLUE, // Fill
-                        TFT_BLACK, // Text
-                        "+",
-                        2);
+    key[4].initButton(&tft, // channel - box
+                          164,
+                          10, // x, y, w, h, outline, fill, text
+                          EXT_BUTTON_WIDTH,
+                          EXT_BUTTON_WIDTH,
+                          TFT_BLACK, // Outline
+                          TFT_BLUE, // Fill
+                          TFT_BLACK, // Text
+                          "-",
+                          2);
+    key[5].initButton(&tft, // channel + box
+                          193,
+                          10, // x, y, w, h, outline, fill, text
+                          EXT_BUTTON_WIDTH,
+                          EXT_BUTTON_WIDTH,
+                          TFT_BLACK, // Outline
+                          TFT_BLUE, // Fill
+                          TFT_BLACK, // Text
+                          "+",
+                          2);
+  }
+
+  else {
+    key[4].initButton(&tft, // channel - box
+                          (EXT_BUTTON_WIDTH / 2) * 6,
+                          (STATUS_BAR_WIDTH * 2) + CHAR_WIDTH - 1, // x, y, w, h, outline, fill, text
+                          EXT_BUTTON_WIDTH,
+                          EXT_BUTTON_WIDTH,
+                          TFT_BLACK, // Outline
+                          TFT_BLUE, // Fill
+                          TFT_BLACK, // Text
+                          "-",
+                          2);
+    key[5].initButton(&tft, // channel + box
+                          (EXT_BUTTON_WIDTH / 2) * 10,
+                          (STATUS_BAR_WIDTH * 2) + CHAR_WIDTH - 1, // x, y, w, h, outline, fill, text
+                          EXT_BUTTON_WIDTH,
+                          EXT_BUTTON_WIDTH,
+                          TFT_BLACK, // Outline
+                          TFT_BLUE, // Fill
+                          TFT_BLACK, // Text
+                          "+",
+                          2);
+  }
 
   key[4].setLabelDatum(1, 5, MC_DATUM);
   key[5].setLabelDatum(1, 5, MC_DATUM);
@@ -238,21 +381,37 @@ void Display::tftDrawChannelScaleButtons(int set_channel)
   key[5].drawButton();
 }
 
-void Display::tftDrawExitScaleButtons()
+void Display::tftDrawExitScaleButtons(bool lnd_an)
 {
   //tft.drawFastVLine(178, 0, 20, TFT_WHITE);
   //tft.setCursor(145, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print("Channel:"); tft.print(set_channel);
 
-  key[6].initButton(&tft, // Exit box
-                        137,
-                        10, // x, y, w, h, outline, fill, text
-                        20,
-                        20,
-                        TFT_ORANGE, // Outline
-                        TFT_RED, // Fill
-                        TFT_BLACK, // Text
-                        "X",
-                        2);
+  if (lnd_an) {
+
+    key[6].initButton(&tft, // Exit box
+                      137,
+                      10, // x, y, w, h, outline, fill, text
+                      EXT_BUTTON_WIDTH,
+                      EXT_BUTTON_WIDTH,
+                      TFT_ORANGE, // Outline
+                      TFT_RED, // Fill
+                      TFT_BLACK, // Text
+                      "X",
+                      2);
+  }
+
+  else {
+    key[6].initButton(&tft, // Exit box
+                      EXT_BUTTON_WIDTH / 2,
+                      (STATUS_BAR_WIDTH * 2) + CHAR_WIDTH - 1, // x, y, w, h, outline, fill, text
+                      EXT_BUTTON_WIDTH,
+                      EXT_BUTTON_WIDTH,
+                      TFT_ORANGE, // Outline
+                      TFT_RED, // Fill
+                      TFT_BLACK, // Text
+                      "X",
+                      2);
+  }
 
   key[6].setLabelDatum(1, 5, MC_DATUM);
 
@@ -278,7 +437,7 @@ void Display::touchToExit()
 {
   tft.setTextColor(TFT_BLACK, TFT_LIGHTGREY);
   tft.fillRect(0,32,HEIGHT_1,16, TFT_LIGHTGREY);
-  tft.drawCentreString(text11,120,32,2);
+  tft.drawCentreString(text11,TFT_WIDTH / 2,32,2);
 }
 
 
@@ -286,8 +445,16 @@ void Display::touchToExit()
 void Display::clearScreen()
 {
   //Serial.println(F("clearScreen()"));
-  tft.fillScreen(TFT_BLACK);
-  tft.setCursor(0, 0);
+  #ifndef MARAUDER_V7
+    tft.fillScreen(TFT_BLACK);
+    tft.setCursor(0, 0);
+  #elif defined(MARAUDER_MINI)
+    tft.fillRect(0, 0, TFT_WIDTH, TFT_HEIGHT, TFT_BLACK);
+    tft.setCursor(0, 0);
+  #else
+    tft.fillRect(0, 0, TFT_WIDTH, TFT_HEIGHT, TFT_BLACK);
+    tft.setCursor(0, 0);
+  #endif
 }
 
 #ifdef SCREEN_BUFFER
@@ -299,13 +466,46 @@ void Display::scrollScreenBuffer(bool down) {
 }
 #endif
 
+void Display::processAndPrintString(TFT_eSPI& tft, const String& originalString) {
+  // Define colors
+  uint16_t text_color = TFT_GREEN; // Default text color
+  uint16_t background_color = TFT_BLACK; // Default background color
+
+  String new_string = originalString;
+
+  // Check for color macros at the start of the string
+  if (new_string.startsWith(";")) {
+    if (new_string.startsWith(RED_KEY)) {
+      text_color = TFT_RED;
+      new_string.remove(0, strlen(RED_KEY)); // Remove the macro
+    } else if (new_string.startsWith(GREEN_KEY)) {
+      text_color = TFT_GREEN;
+      new_string.remove(0, strlen(GREEN_KEY)); // Remove the macro
+    } else if (new_string.startsWith(CYAN_KEY)) {
+      text_color = TFT_CYAN;
+      new_string.remove(0, strlen(CYAN_KEY)); // Remove the macro
+    } else if (new_string.startsWith(WHITE_KEY)) {
+      text_color = TFT_WHITE;
+      new_string.remove(0, strlen(WHITE_KEY)); // Remove the macro
+    } else if (new_string.startsWith(MAGENTA_KEY)) {
+      text_color = TFT_MAGENTA;
+      new_string.remove(0, strlen(MAGENTA_KEY)); // Remove the macro
+    }
+  }
+
+  String spaces = String(' ', TFT_WIDTH / CHAR_WIDTH);
+
+  // Set text color and print the string
+  tft.setTextColor(text_color, background_color);
+  tft.print(new_string + spaces);
+}
+
 void Display::displayBuffer(bool do_clear)
 {
   if (this->display_buffer->size() > 0)
   {
-    delay(1);
-
-    while (display_buffer->size() > 0)
+    int print_count = 10;
+    while ((display_buffer->size() > 0) && (print_count > 0))
     {
 
       #ifndef SCREEN_BUFFER
@@ -327,20 +527,22 @@ void Display::displayBuffer(bool do_clear)
           blank[(18+(yStart - TOP_FIXED_AREA_2) / TEXT_HEIGHT)%19] = xPos;
       #else
         xPos = 0;
-        if (this->screen_buffer->size() >= MAX_SCREEN_BUFFER) 
+        if (this->screen_buffer->size() >= MAX_SCREEN_BUFFER)
           this->scrollScreenBuffer();
 
         screen_buffer->add(display_buffer->shift());
 
         for (int i = 0; i < this->screen_buffer->size(); i++) {
+          //tft.setCursor(xPos, (i * 12) + (SCREEN_HEIGHT / 6));
+          //String spaces = String(' ', TFT_WIDTH / CHAR_WIDTH);
+          //tft.print(spaces);
           tft.setCursor(xPos, (i * 12) + (SCREEN_HEIGHT / 6));
-          for (int x = 0; x < TFT_WIDTH / CHAR_WIDTH; x++)
-            tft.print(" ");
-          tft.setCursor(xPos, (i * 12) + (SCREEN_HEIGHT / 6));
-          tft.setTextColor(TFT_GREEN, TFT_BLACK);
-          tft.print(this->screen_buffer->get(i));
+
+          this->processAndPrintString(tft, this->screen_buffer->get(i));
         }
       #endif
+
+      print_count--;
     }
   }
 }
@@ -415,7 +617,13 @@ void Display::setupScrollArea(uint16_t tfa, uint16_t bfa) {
   //Serial.println("   bfa: " + (String)bfa);
   //Serial.println("yStart: " + (String)this->yStart);
   #ifdef HAS_ILI9341
-    tft.writecommand(ILI9341_VSCRDEF); // Vertical scroll definition
+    #ifdef HAS_ST7796
+      tft.writecommand(0x33);
+    #elif defined(HAS_ST7789)
+      tft.writecommand(ST7789_VSCRDEF); // Vertical scroll definition
+    #else
+      tft.writecommand(ILI9341_VSCRDEF);
+    #endif
     tft.writedata(tfa >> 8);           // Top Fixed Area line count
     tft.writedata(tfa);
     tft.writedata((YMAX-tfa-bfa)>>8);  // Vertical Scrolling Area line count
@@ -428,7 +636,13 @@ void Display::setupScrollArea(uint16_t tfa, uint16_t bfa) {
 
 void Display::scrollAddress(uint16_t vsp) {
   #ifdef HAS_ILI9341
-    tft.writecommand(ILI9341_VSCRSADD); // Vertical scrolling pointer
+    #ifdef HAS_ST7789
+      tft.writecommand(ST7789_VSCRDEF); // Vertical scroll definition
+    #elif defined(HAS_ST7796)
+      tft.writecommand(0x33);
+    #else
+      tft.writecommand(ILI9341_VSCRDEF);
+    #endif
     tft.writedata(vsp>>8);
     tft.writedata(vsp);
   #endif
@@ -548,7 +762,7 @@ void Display::drawStylus()
 //====================================================================================
 //   Decode and render the Jpeg image onto the TFT screen
 //====================================================================================
-void Display::jpegRender(int xpos, int ypos) {
+/*void Display::jpegRender(int xpos, int ypos) {
 
   // retrieve infomration about the image
   uint16_t  *pImg;
@@ -615,13 +829,13 @@ void Display::jpegRender(int xpos, int ypos) {
 
   // calculate how long it took to draw the image
   drawTime = millis() - drawTime; // Calculate the time it took
-}
+}*/
 
 //====================================================================================
 //   Print information decoded from the Jpeg image
 //====================================================================================
-void Display::jpegInfo() {
-/*
+/*void Display::jpegInfo() {
+
   Serial.println("===============");
   Serial.println("JPEG image info");
   Serial.println("===============");
@@ -635,13 +849,12 @@ void Display::jpegInfo() {
   Serial.print  ("MCU height :"); Serial.println(JpegDec.MCUHeight);
   Serial.println("===============");
   Serial.println("");
-  */
-}
+}*/
 
 //====================================================================================
 //   Open a Jpeg file and send it to the Serial port in a C array compatible format
 //====================================================================================
-void createArray(const char *filename) {
+/*void createArray(const char *filename) {
 
   // Open the named file
   fs::File jpgFile = SPIFFS.open( filename, "r");    // File handle reference for SPIFFS
@@ -681,7 +894,7 @@ void createArray(const char *filename) {
 
   Serial.println("};\r\n");
   jpgFile.close();
-}
+}*/
 
 // End JPEG_functions
 
@@ -835,9 +1048,9 @@ void Display::buildBanner(String msg, int xpos)
 
 void Display::main(uint8_t scan_mode)
 {  
-  if ((scan_mode == LV_JOIN_WIFI) ||
+  /*if ((scan_mode == LV_JOIN_WIFI) ||
       (scan_mode == LV_ADD_SSID))
-    lv_task_handler();
+    lv_task_handler();*/
   return;
 }
 // End SPIFFS_functions

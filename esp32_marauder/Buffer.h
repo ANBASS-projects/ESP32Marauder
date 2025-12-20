@@ -7,9 +7,10 @@
 #include "FS.h"
 #include "settings.h"
 #include "esp_wifi_types.h"
+#include "configs.h"
 
-#define BUF_SIZE 3 * 1024 // Had to reduce buffer size to save RAM. GG @spacehuhn
-#define SNAP_LEN 2324 // max len of each recieved packet
+//#define BUF_SIZE 3 * 1024 // Had to reduce buffer size to save RAM. GG @spacehuhn
+//#define SNAP_LEN 2324 // max len of each recieved packet
 
 //extern bool useSD;
 
@@ -20,13 +21,14 @@ class Buffer {
     Buffer();
     void pcapOpen(String file_name, fs::FS* fs, bool serial);
     void logOpen(String file_name, fs::FS* fs, bool serial);
+    void gpxOpen(String file_name, fs::FS* fs, bool serial);
     void append(wifi_promiscuous_pkt_t *packet, int len);
     void append(String log);
     void save();
   private:
-    void createFile(String name, bool is_pcap);
+    void createFile(String name, bool is_pcap, bool is_gpx = false);
     void open(bool is_pcap);
-    void openFile(String file_name, fs::FS* fs, bool serial, bool is_pcap);
+    void openFile(String file_name, fs::FS* fs, bool serial, bool is_pcap, bool is_gpx = false);
     void add(const uint8_t* buf, uint32_t len, bool is_pcap);
     void write(int32_t n);
     void write(uint32_t n);

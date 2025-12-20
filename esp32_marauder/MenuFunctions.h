@@ -5,6 +5,14 @@
 
 #include "configs.h"
 
+#ifdef MARAUDER_CARDPUTER
+  #include "Keyboard.h"
+#endif
+
+#ifdef HAS_TOUCH
+  #include "TouchKeyboard.h"
+#endif
+
 #ifdef HAS_SCREEN
 
 #define BATTERY_ANALOG_ON 0
@@ -16,11 +24,21 @@
 
 #ifdef HAS_BUTTONS
   #include "Switches.h"
-  extern Switches u_btn;
-  extern Switches d_btn;
-  extern Switches l_btn;
-  extern Switches r_btn;
-  extern Switches c_btn;
+  #if (U_BTN >= 0)
+    extern Switches u_btn;
+  #endif
+  #if (D_BTN >= 0)
+    extern Switches d_btn;
+  #endif
+  #if (L_BTN >= 0)
+    extern Switches l_btn;
+  #endif
+  #if (R_BTN >= 0)
+    extern Switches r_btn;
+  #endif
+  #if (C_BTN >= 0)
+    extern Switches c_btn;
+  #endif
 #endif
 
 extern WiFiScan wifi_scan_obj;
@@ -72,23 +90,14 @@ extern Settings settings_obj;
 #define STATUS_GPS 32
 #define GPS_MENU 33
 #define DISABLE_TOUCH 34
-
-PROGMEM void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p);
-PROGMEM bool my_touchpad_read(lv_indev_drv_t * indev_driver, lv_indev_data_t * data);
-
-PROGMEM static lv_disp_buf_t disp_buf;
-PROGMEM static lv_color_t buf[LV_HOR_RES_MAX * 10];
-
-PROGMEM static void ta_event_cb(lv_obj_t * ta, lv_event_t event);
-PROGMEM static void add_ssid_keyboard_event_cb(lv_obj_t * keyboard, lv_event_t event);
-PROGMEM static void html_list_cb(lv_obj_t * btn, lv_event_t event);
-PROGMEM static void ap_list_cb(lv_obj_t * btn, lv_event_t event);
-PROGMEM static void station_list_cb(lv_obj_t * btn, lv_event_t event);
-PROGMEM static void setting_dropdown_cb(lv_obj_t * btn, lv_event_t event);
-
-// lvgl stuff
-PROGMEM static lv_obj_t *kb;
-PROGMEM static lv_obj_t * save_as_kb;
+#define FLIPPER 35
+#define BLANK 36
+#define PINESCAN_SNIFF 37 // Use blanks icon
+#define MULTISSID_SNIFF 37 // Use blanks icon
+#define JOINED 38
+#define FORCE 39
+#define FUNNY_BEACON 40
+#define FLOCK 41
 
 struct Menu;
 
@@ -97,7 +106,7 @@ struct Menu;
 struct MenuNode {
   String name;
   bool command;
-  uint16_t color;
+  uint8_t color;
   uint8_t icon;
   TFT_eSPI_Button* button;
   bool selected;
@@ -109,7 +118,7 @@ struct Menu {
   String name;
   LinkedList<MenuNode>* list;
   Menu                * parentMenu;
-  uint8_t               selected = 0;
+  uint16_t               selected = 0;
 };
 
 
@@ -119,43 +128,61 @@ class MenuFunctions
 
     String u_result = "";
 
+
+    float _graph_scale = 1.0;
     uint32_t initTime = 0;
-    uint8_t menu_start_index = 0;
+    int menu_start_index = 0;
     uint8_t mini_kb_index = 0;
     uint8_t old_gps_sat_count = 0;
+    uint8_t max_graph_value = 0;
 
     // Main menu stuff
     Menu mainMenu;
 
     Menu wifiMenu;
     Menu bluetoothMenu;
+    #ifdef HAS_GPS
+      Menu gpsMenu;   // H4W9 Added GPS Menu option to Main Menu
+    #endif
     Menu badusbMenu;
     Menu deviceMenu;
 
     // Device menu stuff
-    Menu whichUpdateMenu;
+    //Menu whichUpdateMenu;
     Menu failedUpdateMenu;
     Menu confirmMenu;
     Menu updateMenu;
     Menu settingsMenu;
     Menu specSettingMenu;
-    Menu infoMenu;
-    Menu languageMenu;
+    //Menu languageMenu;
     Menu sdDeleteMenu;
 
     // WiFi menu stuff
     Menu wifiSnifferMenu;
+    Menu wifiScannerMenu;
     Menu wifiAttackMenu;
+    #ifdef HAS_GPS
+      Menu wardrivingMenu;
+    #endif
     Menu wifiGeneralMenu;
     Menu wifiAPMenu;
-    #ifndef HAS_ILI9341
+    Menu wifiIPMenu;
+    Menu ssidsMenu;
+    //#ifdef HAS_BT
+    //  Menu airtagMenu;
+    //#endif
+    //#ifndef HAS_ILI9341
       Menu wifiStationMenu;
-    #endif
+    //#endif
 
     // WiFi General Menu
     Menu htmlMenu;
     Menu miniKbMenu;
     Menu saveFileMenu;
+    Menu genAPMacMenu;
+    Menu cloneAPMacMenu;
+    Menu setMacMenu;
+    Menu selectProbeSSIDsMenu;
 
     // Bluetooth menu stuff
     Menu bluetoothSnifferMenu;
@@ -164,26 +191,50 @@ class MenuFunctions
     // Settings things menus
     Menu generateSSIDsMenu;
 
+    Menu evilPortalMenu;
+
     static void lv_tick_handler();
 
     // Menu icons
 
-
-
-    void addNodes(Menu* menu, String name, uint16_t color, Menu* child, int place, std::function<void()> callable, bool selected = false, String command = "");
+    void setupSDFileList(bool update = false);
+    void buildSDFileMenu(bool update = false);
+    void displayMenuButtons();
+    uint16_t getColor(uint16_t color);
+    void drawAvgLine(int16_t value);
+    void drawMaxLine(int16_t value, uint16_t color);
+    void drawMaxLine(uint8_t value, uint16_t color);
+    float calculateGraphScale(int16_t value);
+    float calculateGraphScale(uint8_t value);
+    float graphScaleCheck(const int16_t array[TFT_WIDTH]);
+    #ifndef HAS_DUAL_BAND
+      float graphScaleCheckSmall(const uint8_t array[MAX_CHANNEL]);
+    #else
+      float graphScaleCheckSmall(const uint8_t array[DUAL_BAND_CHANNELS]);
+    #endif
+    void drawGraph(int16_t *values);
+    void drawGraphSmall(uint8_t *values);
+    void renderGraphUI(uint8_t scan_mode = 0);
+    //void addNodes(Menu* menu, String name, uint16_t color, Menu* child, int place, std::function<void()> callable, bool selected = false, String command = "");
+    void addNodes(Menu* menu, String name, uint8_t color, Menu* child, int place, std::function<void()> callable, bool selected = false, String command = "");
     void battery(bool initial = false);
     void battery2(bool initial = false);
     void showMenuList(Menu* menu, int layer);
     String callSetting(String key);
     void runBoolSetting(String ley);
     void displaySetting(String key, Menu* menu, int index);
-    void buttonSelected(uint8_t b, int8_t x = -1);
-    void buttonNotSelected(uint8_t b, int8_t x = -1);
-    #if (!defined(HAS_ILI9341) && defined(HAS_BUTTONS))
-      void miniKeyboard(Menu * targetMenu);
+    void buttonSelected(int b, int x = -1);
+    void buttonNotSelected(int b, int x = -1);
+    //#if (!defined(HAS_ILI9341) && defined(HAS_BUTTONS))
+    #ifdef HAS_MINI_KB
+      String miniKeyboard(Menu * targetMenu, bool do_pass = false);
     #endif
+    //#endif
 
-    uint8_t updateTouch(uint16_t *x, uint16_t *y, uint16_t threshold = 600);
+    #ifdef MARAUDER_CARDPUTER
+      Keyboard_Class M5CardputerKeyboard = Keyboard_Class();
+      bool isKeyPressed(char c);
+    #endif
 
   public:
     MenuFunctions();
@@ -197,11 +248,17 @@ class MenuFunctions
     Menu loadSSIDsMenu;
     Menu saveAPsMenu;
     Menu loadAPsMenu;
+    Menu saveATsMenu;
+    Menu loadATsMenu;
 
     #ifdef HAS_GPS
       // GPS Menu
       Menu gpsInfoMenu;
+      Menu gpsPOIMenu;
     #endif
+
+    Menu infoMenu;
+    Menu apInfoMenu;
 
     Ticker tick;
 
@@ -212,17 +269,14 @@ class MenuFunctions
 
     String loaded_file = "";
 
-    void initLVGL();
-    void deinitLVGL();
-    void selectEPHTMLGFX();
+    void joinWiFiGFX(String essid, bool start_ap = false);
+    void setGraphScale(float scale);
     void updateStatusBar();
     void addSSIDGFX();
-    void addAPGFX();
-    void addStationGFX();
     void buildButtons(Menu* menu, int starting_index = 0, String button_name = "");
-    void changeMenu(Menu* menu);
+    void changeMenu(Menu* menu, bool simple_change = false);
     void drawStatusBar();
-    void displayCurrentMenu(uint8_t start_index = 0);
+    void displayCurrentMenu(int start_index = 0);
     void main(uint32_t currentTime);
     void RunSetup();
     void orientDisplay();
@@ -231,3 +285,4 @@ class MenuFunctions
 
 #endif
 #endif
+

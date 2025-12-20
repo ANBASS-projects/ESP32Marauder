@@ -9,15 +9,19 @@
 
 #include <FS.h>
 #include <functional>
-#include <JPEGDecoder.h>
+//#include <JPEGDecoder.h>
 #include <LinkedList.h>
 #include <SPI.h>
-#include <lvgl.h>
+//#include <lvgl.h>
 #include <Ticker.h>
 #include "SPIFFS.h"
 #include "Assets.h"
-#include <XPT2046_Touchscreen.h>
+
 #include <TFT_eSPI.h>
+
+#ifdef HAS_CYD_TOUCH
+  #include <XPT2046_Touchscreen.h>
+#endif
 
 // WiFi stuff
 #define OTA_UPDATE 100
@@ -39,6 +43,16 @@
 #define LV_ADD_SSID 14
 #define WIFI_ATTACK_BEACON_LIST 15
 
+#define RED_KEY ";red;"
+#define GREEN_KEY ";grn;"
+#define CYAN_KEY ";cyn;"
+#define MAGENTA_KEY ";mgn;"
+#define WHITE_KEY ";wht;"
+
+#define UP_BUTTON     0
+#define SELECT_BUTTON 1
+#define DOWN_BUTTON   2
+
 class Display
 {
   private:
@@ -58,22 +72,18 @@ class Display
     #ifdef SCREEN_BUFFER
       void scrollScreenBuffer(bool down = false);
     #endif
+    void processAndPrintString(TFT_eSPI& tft, const String& originalString);
 
   public:
     Display();
     TFT_eSPI tft = TFT_eSPI();
-    TFT_eSPI_Button key[BUTTON_ARRAY_LEN];
+    TFT_eSPI_Button key[BUTTON_ARRAY_LEN + 3];
     const String PROGMEM version_number = MARAUDER_VERSION;
 
-    //Touchscreen stuff
-    #define XPT2046_IRQ 36
-    #define XPT2046_MOSI 32
-    #define XPT2046_MISO 39
-    #define XPT2046_CLK 25
-    #define XPT2046_CS 33
-    
-    SPIClass touchscreenSPI = SPIClass(VSPI);
-    XPT2046_Touchscreen touchscreen = XPT2046_Touchscreen(XPT2046_CS, XPT2046_IRQ);
+    #ifdef HAS_CYD_TOUCH
+      SPIClass touchscreenSPI = SPIClass(VSPI);
+      XPT2046_Touchscreen touchscreen;
+    #endif
 
     bool printing = false;
     bool loading = false;
@@ -108,25 +118,29 @@ class Display
     // We can speed up scrolling of short text lines by just blanking the character we drew
     int blank[19]; // We keep all the strings pixel lengths to optimise the speed of the top line blanking
 
+    int8_t menuButton(uint16_t *x, uint16_t *y, bool pressed, bool check_hold = false);
+    uint8_t updateTouch(uint16_t *x, uint16_t *y, uint16_t threshold = 600);
+    bool isTouchHeld(uint16_t threshold = 600);
     void tftDrawRedOnOffButton();
     void tftDrawGreenOnOffButton();
     void tftDrawGraphObjects(byte x_scale);
-    void tftDrawEapolColorKey();
+    void tftDrawEapolColorKey(bool filter = false);
     void tftDrawColorKey();
     void tftDrawXScaleButtons(byte x_scale);
     void tftDrawYScaleButtons(byte y_scale);
-    void tftDrawChannelScaleButtons(int set_channel);
-    void tftDrawExitScaleButtons();
+    void tftDrawChannelScaleButtons(int set_channel, bool lnd_an = true);
+    void tftDrawExitScaleButtons(bool lnd_an = true);
     void buildBanner(String msg, int xpos);
     void clearScreen();
     void displayBuffer(bool do_clear = false);
     //void drawJpeg(const char *filename, int xpos, int ypos);
     void getTouchWhileFunction(bool pressed);
     void initScrollValues(bool tte = false);
-    void jpegInfo();
-    void jpegRender(int xpos, int ypos);
+    //void jpegInfo();
+    //void jpegRender(int xpos, int ypos);
     void listDir(fs::FS &fs, const char * dirname, uint8_t levels);
     void listFiles();
+    void init();
     void main(uint8_t scan_mode);
     void RunSetup();
     void scrollAddress(uint16_t vsp);
@@ -136,6 +150,7 @@ class Display
     void touchToExit();
     void twoPartDisplay(String center_text);
     void updateBanner(String msg);
+    void setCalData(bool landscape = false);
 };
 #endif
 #endif
